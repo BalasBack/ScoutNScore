@@ -1,4 +1,6 @@
 import type { OpponentCandidate, UscfMember, UscfRating } from "../types";
+import { fetchJsonCors } from "./cors-fetch";
+import { normalizePersonQuery, sortByNameMatch } from "./name-match";
 
 const BASE = "https://ratings-api.uschess.org/api/v1/members";
 
@@ -58,43 +60,16 @@ function mapMember(m: ApiMember): UscfMember {
   };
 }
 
-/**
- * Browser calls to ratings-api.uschess.org are blocked by CORS.
- * Try direct first, then public read-through proxies.
- */
 async function fetchUscfJson(url: string): Promise<unknown> {
-  const attempts: Array<() => Promise<Response>> = [
-    () => fetch(url),
-    () => fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`),
-    () =>
-      fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`),
-  ];
-
-  let lastErr: unknown = null;
-  for (const attempt of attempts) {
-    try {
-      const res = await attempt();
-      if (!res.ok) {
-        lastErr = new Error(`USCF request failed (${res.status})`);
-        if (res.status === 404) throw lastErr;
-        continue;
-      }
-      const text = await res.text();
-      try {
-        return JSON.parse(text);
-      } catch {
-        lastErr = new Error("Invalid USCF JSON response");
-      }
-    } catch (e) {
-      lastErr = e;
-      // TypeError: Failed to fetch → try next proxy
-    }
+  try {
+    return await fetchJsonCors(url);
+  } catch (e) {
+    throw new Error(
+      e instanceof Error
+        ? e.message
+        : "USCF lookup failed (network/CORS). Try again shortly.",
+    );
   }
-  throw new Error(
-    lastErr instanceof Error
-      ? lastErr.message
-      : "USCF lookup failed (network/CORS). Try again, or use the desktop app.",
-  );
 }
 
 export async function lookupUscfMember(uscfId: string): Promise<UscfMember> {
@@ -106,71 +81,44 @@ export async function lookupUscfMember(uscfId: string): Promise<UscfMember> {
   return mapMember(data);
 }
 
-function parseNameQuery(query: string): {
-  first: string | null;
-  last: string | null;
-} {
-  const q = query.trim();
-  if (!q) return { first: null, last: null };
-  if (q.includes(",")) {
-    const parts = q.split(",").map((s) => s.trim());
-    return {
-      first: parts[1] || null,
-      last: parts[0] || null,
-    };
-  }
-  const parts = q.split(/\s+/);
-  if (parts.length === 1) return { first: parts[0], last: parts[0] };
-  return { first: parts[0], last: parts.slice(1).join(" ") };
-}
-
-async function fetchMembers(
-  first: string | null,
-  last: string | null,
-  limit: number,
-): Promise<UscfMember[]> {
-  const params = new URLSearchParams({ pageSize: String(limit) });
-  if (last) params.set("lastName", last);
-  if (first) params.set("firstName", first);
-  const data = (await fetchUscfJson(
-    `${BASE}?${params.toString()}`,
-  )) as SearchResponse;
-  return (data.items ?? []).map(mapMember);
-}
-
+/**
+ * USCF name search uses the `Fuzzy` query param (not lastName/firstName —
+ * those are ignored by the API and return top GMs).
+ */
 export async function searchUscfMembers(
   query: string,
   limit = 12,
 ): Promise<UscfMember[]> {
-  const q = query.trim();
-  if (!q) return [];
-  if (/^\d+$/.test(q)) {
+  const raw = query.trim();
+  if (!raw) return [];
+
+  if (/^\d+$/.test(raw)) {
     try {
-      return [await lookupUscfMember(q)];
+      return [await lookupUscfMember(raw)];
     } catch {
       return [];
     }
   }
 
-  const { first, last } = parseNameQuery(q);
-  const seen = new Set<string>();
-  const out: UscfMember[] = [];
-  const merge = (members: UscfMember[]) => {
-    for (const m of members) {
-      if (!seen.has(m.id)) {
-        seen.add(m.id);
-        out.push(m);
-      }
-    }
-  };
+  const fuzzy = normalizePersonQuery(raw);
+  if (!fuzzy) return [];
 
-  if (first && last && first === last) {
-    merge(await fetchMembers(null, last, limit));
-    merge(await fetchMembers(first, null, limit));
-  } else {
-    merge(await fetchMembers(first, last, limit));
-  }
-  return out.slice(0, limit);
+  // Fetch a wider page then rank locally so best matches surface first
+  const params = new URLSearchParams({
+    Fuzzy: fuzzy,
+    Size: String(Math.max(limit * 3, 24)),
+  });
+  const data = (await fetchUscfJson(
+    `${BASE}?${params.toString()}`,
+  )) as SearchResponse;
+
+  const members = (data.items ?? []).map(mapMember);
+  return sortByNameMatch(
+    fuzzy,
+    members,
+    (m) => `${m.first_name} ${m.last_name}`,
+    40,
+  ).slice(0, limit);
 }
 
 export function memberToCandidate(member: UscfMember): OpponentCandidate {

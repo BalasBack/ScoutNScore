@@ -2,7 +2,7 @@ import { formatCoachProfile } from "../ollama-client";
 import { checkWebCoach, webCoachChat } from "../web-llm-client";
 import { analyzeGame } from "./analyze";
 import * as db from "./db";
-import { importChesscom, importLichess, importOpponentChesscom, importOpponentLichess } from "./import";
+import { importChesscom, importLichess } from "./import";
 import { checkStockfish } from "./stockfish-engine";
 import {
   backfillOpenings,
@@ -15,7 +15,11 @@ import {
   memberToCandidate,
   searchUscfMembers,
 } from "./uscf-client";
-import type { ChessScopeApi, OpponentCandidate, OpponentDossier } from "../types";
+import { searchFidePlayers } from "./fide-client";
+import { searchChessGamesPlayers } from "./chessgames-client";
+import { buildOpponentDossier } from "./dossier";
+import { sortByNameMatch } from "./name-match";
+import type { ChessScopeApi, OpponentCandidate } from "../types";
 
 async function searchLichess(query: string): Promise<OpponentCandidate[]> {
   const res = await fetch(
@@ -55,7 +59,11 @@ async function searchChesscom(query: string): Promise<OpponentCandidate[]> {
         `https://api.chess.com/pub/player/${encodeURIComponent(v)}`,
       );
       if (!res.ok) continue;
-      const p = (await res.json()) as { username: string; name?: string; country?: string };
+      const p = (await res.json()) as {
+        username: string;
+        name?: string;
+        country?: string;
+      };
       out.push({
         id: `chesscom_${p.username}`,
         name: p.name || p.username,
@@ -83,27 +91,33 @@ export const webApi: ChessScopeApi = {
   importChesscom: async (username, maxGames, asOpponent) => {
     const settings = await db.getSettings();
     const opts = asOpponent ? { isOwnGame: false } : { isOwnGame: true };
-    return importChesscom(username, maxGames ?? settings.default_game_count ?? 100, opts);
+    return importChesscom(
+      username,
+      maxGames ?? settings.default_game_count ?? 100,
+      opts,
+    );
   },
 
   importLichess: async (username, maxGames, asOpponent) => {
     const settings = await db.getSettings();
     const opts = asOpponent ? { isOwnGame: false } : { isOwnGame: true };
-    return importLichess(username, maxGames ?? settings.default_game_count ?? 100, opts);
+    return importLichess(
+      username,
+      maxGames ?? settings.default_game_count ?? 100,
+      opts,
+    );
   },
 
   syncAll: async () => {
     const s = await db.getSettings();
     const results = [];
-    if (s.chesscom_username) {
-      results.push(
-        await importChesscom(s.chesscom_username, s.default_game_count ?? 100),
-      );
+    const chesscom = s.chesscom_username?.trim().replace(/^@/, "") || null;
+    const lichess = s.lichess_username?.trim().replace(/^@/, "") || null;
+    if (chesscom) {
+      results.push(await importChesscom(chesscom, s.default_game_count ?? 100));
     }
-    if (s.lichess_username) {
-      results.push(
-        await importLichess(s.lichess_username, s.default_game_count ?? 100),
-      );
+    if (lichess) {
+      results.push(await importLichess(lichess, s.default_game_count ?? 100));
     }
     if (!results.length) {
       throw new Error("Add Chess.com or Lichess username in Settings first.");
@@ -152,67 +166,56 @@ export const webApi: ChessScopeApi = {
   },
 
   searchOpponents: async (query, sources) => {
+    const q = query.trim();
+    if (!q) throw new Error("Enter a player name or username to search");
+
     const want = (src: string) =>
       !sources?.length ||
       sources.some((s) => s.toLowerCase() === src.toLowerCase());
+
     const results: OpponentCandidate[] = [];
+    const errors: string[] = [];
 
-    if (want("uscf")) {
-      const members = await searchUscfMembers(query, 12);
-      results.push(...members.map(memberToCandidate));
-    }
-    if (want("lichess") || want("online")) {
-      results.push(...(await searchLichess(query)));
-    }
-    if (want("chesscom") || want("online")) {
-      results.push(...(await searchChesscom(query)));
-    }
+    const run = async (
+      label: string,
+      enabled: boolean,
+      fn: () => Promise<OpponentCandidate[]>,
+    ) => {
+      if (!enabled) return;
+      try {
+        results.push(...(await fn()));
+      } catch (e) {
+        errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    };
+
+    await run("USCF", want("uscf"), async () => {
+      const members = await searchUscfMembers(q, 12);
+      return members.map(memberToCandidate);
+    });
+    await run("FIDE", want("fide"), () => searchFidePlayers(q, 12));
+    await run(
+      "Lichess",
+      want("lichess") || want("online"),
+      () => searchLichess(q),
+    );
+    await run(
+      "Chess.com",
+      want("chesscom") || want("online"),
+      () => searchChesscom(q),
+    );
+    await run("ChessGames", want("chessgames"), () =>
+      searchChessGamesPlayers(q, 8),
+    );
+
     if (!results.length) {
-      throw new Error(
-        want("uscf") && !want("online") && !want("lichess") && !want("chesscom")
-          ? `No USCF members found for "${query}"`
-          : `No opponents found for "${query}" (try a Lichess/Chess.com username or USCF name/ID)`,
-      );
+      const detail = errors.length ? ` (${errors.join("; ")})` : "";
+      throw new Error(`No opponents found for "${q}"${detail}`);
     }
-    return results;
+    return sortByNameMatch(q, results, (c) => c.name, 1);
   },
 
-  buildOpponentDossier: async (candidate): Promise<OpponentDossier> => {
-    let imported = 0;
-    if (candidate.lichess_username) {
-      const r = await importOpponentLichess(candidate.lichess_username, 30);
-      imported += r.imported;
-    } else if (candidate.chesscom_username) {
-      const r = await importOpponentChesscom(candidate.chesscom_username, 30);
-      imported += r.imported;
-    }
-    const emptyRecord = {
-      wins: 0,
-      draws: 0,
-      losses: 0,
-      as_white: { games: 0, wins: 0, draws: 0, losses: 0 },
-      as_black: { games: 0, wins: 0, draws: 0, losses: 0 },
-    };
-    return {
-      candidate,
-      games_imported: imported,
-      games_imported_chesscom: candidate.chesscom_username ? imported : 0,
-      games_imported_lichess: candidate.lichess_username ? imported : 0,
-      games_imported_chessgames: 0,
-      opening_lines: [],
-      openings_as_white: [],
-      openings_as_black: [],
-      record: emptyRecord,
-      recent_games: [],
-      ratings: [],
-      style_summary: imported
-        ? `Imported ${imported} opponent games — view under Analysis → Scouted games.`
-        : "Link a Lichess or Chess.com username to import games.",
-      tactical_notes: "Full dossier stats available in the desktop app.",
-      recommended_prep: "Review imported games in Analysis and note recurring openings.",
-      ai_insight: null,
-    };
-  },
+  buildOpponentDossier,
 
   repairScoutGames: () => db.repairScoutGames(),
 };
