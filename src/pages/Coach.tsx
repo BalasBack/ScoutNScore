@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, Bot, User } from "lucide-react";
+import {
+  Send,
+  Bot,
+  User,
+  Plus,
+  MessageSquare,
+  Trash2,
+  PanelLeft,
+} from "lucide-react";
 import { api, CoachMessage, OllamaStatus } from "../lib/tauri";
 import { isWebApp } from "../lib/api";
 import {
@@ -11,10 +19,16 @@ import {
 import {
   checkWebCoach,
   setCoachProfileCache,
-  warmupWebCoach,
   webCoachStream,
 } from "../lib/web-llm-client";
-import { Button, Card, Input } from "../components/ui";
+import {
+  CoachChatRecord,
+  createCoachChat,
+  deleteCoachChat,
+  listCoachChats,
+  saveCoachChat,
+} from "../lib/web/db";
+import { Button, Input } from "../components/ui";
 
 const SUGGESTIONS = [
   "What are my biggest weaknesses based on my games?",
@@ -25,8 +39,13 @@ const SUGGESTIONS = [
 
 function pickModel(status: OllamaStatus, preferred: string | null): string {
   if (!status.models.length) return preferred ?? "llama3.1";
-  if (preferred && status.models.some((m) => m === preferred || m.startsWith(`${preferred}:`))) {
-    return status.models.find((m) => m === preferred || m.startsWith(`${preferred}:`))!;
+  if (
+    preferred &&
+    status.models.some((m) => m === preferred || m.startsWith(`${preferred}:`))
+  ) {
+    return status.models.find(
+      (m) => m === preferred || m.startsWith(`${preferred}:`),
+    )!;
   }
   const small = status.models.find((m) =>
     /phi|gemma|:1b|:3b|mini|small/i.test(m),
@@ -38,18 +57,36 @@ export function Coach() {
   const web = isWebApp();
   const [status, setStatus] = useState<OllamaStatus | null>(null);
   const [model, setModel] = useState("llama3.1");
+  const [warming, setWarming] = useState(false);
+  const [chats, setChats] = useState<CoachChatRecord[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [warming, setWarming] = useState(false);
   const [streamText, setStreamText] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<string>("No games imported yet.");
+  const activeIdRef = useRef<string | null>(null);
 
   useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
+
+  useEffect(() => {
+    void (async () => {
+      let existing = await listCoachChats();
+      if (existing.length === 0) {
+        const created = await createCoachChat();
+        existing = [created];
+      }
+      setChats(existing);
+      setActiveId(existing[0].id);
+      setMessages(existing[0].messages);
+    })();
+
     if (web) {
       checkWebCoach().then(setStatus);
-      void warmupWebCoach();
       api.getPlayerStats().then((stats) => {
         profileRef.current = formatCoachProfile(stats);
         setCoachProfileCache(profileRef.current);
@@ -72,9 +109,68 @@ export function Coach() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamText, loading, warming]);
 
+  const refreshChats = async (preferId?: string | null) => {
+    const existing = await listCoachChats();
+    setChats(existing);
+    const id = preferId ?? activeIdRef.current;
+    const pick = existing.find((c) => c.id === id) ?? existing[0] ?? null;
+    if (pick) {
+      setActiveId(pick.id);
+      setMessages(pick.messages);
+    } else {
+      setActiveId(null);
+      setMessages([]);
+    }
+  };
+
+  const newChat = async () => {
+    if (loading) return;
+    const created = await createCoachChat();
+    setChats((prev) => [created, ...prev]);
+    setActiveId(created.id);
+    setMessages([]);
+    setStreamText("");
+    setInput("");
+  };
+
+  const selectChat = (id: string) => {
+    if (loading || id === activeId) return;
+    const chat = chats.find((c) => c.id === id);
+    if (!chat) return;
+    setActiveId(id);
+    setMessages(chat.messages);
+    setStreamText("");
+  };
+
+  const removeChat = async (id: string) => {
+    if (loading) return;
+    await deleteCoachChat(id);
+    const remaining = await listCoachChats();
+    if (remaining.length === 0) {
+      const created = await createCoachChat();
+      setChats([created]);
+      setActiveId(created.id);
+      setMessages([]);
+      return;
+    }
+    setChats(remaining);
+    if (activeId === id) {
+      setActiveId(remaining[0].id);
+      setMessages(remaining[0].messages);
+    }
+  };
+
   const send = async (text: string) => {
     if (!text.trim() || loading || warming) return;
     if (!status?.connected) return;
+
+    let chatId = activeId;
+    if (!chatId) {
+      const created = await createCoachChat();
+      chatId = created.id;
+      setActiveId(created.id);
+      setChats((prev) => [created, ...prev]);
+    }
 
     const userMsg: CoachMessage = { role: "user", content: text.trim() };
     const next = [...messages, userMsg];
@@ -82,6 +178,19 @@ export function Coach() {
     setInput("");
     setLoading(true);
     setStreamText("");
+
+    const draft: CoachChatRecord = {
+      id: chatId,
+      title: "New chat",
+      messages: next,
+      created_at: chats.find((c) => c.id === chatId)?.created_at ?? Date.now(),
+      updated_at: Date.now(),
+    };
+    const savedUser = await saveCoachChat(draft);
+    setChats((prev) => {
+      const others = prev.filter((c) => c.id !== chatId);
+      return [savedUser, ...others];
+    });
 
     let reply = "";
     try {
@@ -96,11 +205,23 @@ export function Coach() {
         reply += chunk;
         setStreamText(reply);
       }
-      setMessages([...next, { role: "assistant", content: reply.trim() }]);
+      const withAssistant = [
+        ...next,
+        { role: "assistant", content: reply.trim() },
+      ];
+      setMessages(withAssistant);
       setStreamText("");
+      const saved = await saveCoachChat({
+        ...savedUser,
+        messages: withAssistant,
+      });
+      setChats((prev) => {
+        const others = prev.filter((c) => c.id !== chatId);
+        return [saved, ...others];
+      });
     } catch (e) {
       const partial = reply.trim();
-      setMessages([
+      const withAssistant = [
         ...next,
         {
           role: "assistant",
@@ -108,33 +229,118 @@ export function Coach() {
             ? `${partial}\n\n—(stopped: ${e})`
             : `Error: ${e}`,
         },
-      ]);
+      ];
+      setMessages(withAssistant);
       setStreamText("");
+      const saved = await saveCoachChat({
+        ...savedUser,
+        messages: withAssistant,
+      });
+      setChats((prev) => {
+        const others = prev.filter((c) => c.id !== chatId);
+        return [saved, ...others];
+      });
     } finally {
       setLoading(false);
+      void refreshChats(chatId);
     }
   };
 
   const canSend = !!status?.connected && !warming;
+  const activeTitle =
+    chats.find((c) => c.id === activeId)?.title ?? "AI Coach";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="border-b border-[var(--color-border)] px-4 py-5 sm:px-8">
-        <h1 className="text-xl font-bold">AI Coach</h1>
-        <p className="text-sm text-[var(--color-muted)]">
-          {web
-            ? "Fast free cloud coach — no signup or API key"
-            : "Local coaching via Ollama — powered by your game stats"}
-        </p>
+      <header className="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-4 sm:px-8">
+        <button
+          type="button"
+          onClick={() => setSidebarOpen((o) => !o)}
+          className="rounded-lg border border-[var(--color-border)] p-2 text-[var(--color-muted)] hover:text-[var(--color-text)]"
+          aria-label="Toggle chat history"
+        >
+          <PanelLeft className="h-4 w-4" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-xl font-bold">{activeTitle}</h1>
+          <p className="text-sm text-[var(--color-muted)]">
+            {web
+              ? "Free coach — chats saved on this device"
+              : "Local Ollama coach — chats saved on this device"}
+          </p>
+        </div>
+        <Button type="button" onClick={() => void newChat()} disabled={loading}>
+          <Plus className="h-4 w-4" />
+          New chat
+        </Button>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-        <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {sidebarOpen && (
+          <aside className="flex w-56 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] sm:w-72">
+            <div className="border-b border-[var(--color-border)] px-3 py-2 text-xs font-medium text-[var(--color-muted)]">
+              Chat history
+            </div>
+            <div className="flex-1 overflow-auto p-2">
+              {chats.map((c) => (
+                <div
+                  key={c.id}
+                  className={`group mb-1 flex items-center gap-1 rounded-lg ${
+                    c.id === activeId
+                      ? "bg-[var(--color-surface-2)]"
+                      : "hover:bg-[var(--color-surface-2)]/60"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => selectChat(c.id)}
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left text-sm"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5 shrink-0 text-[var(--color-muted)]" />
+                    <span className="truncate">{c.title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void removeChat(c.id)}
+                    className="mr-1 rounded p-1.5 text-[var(--color-muted)] opacity-70 hover:bg-red-500/10 hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100"
+                    aria-label="Delete chat"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {!web && status?.connected && status.models.length > 0 && (
+              <div className="border-t border-[var(--color-border)] p-3">
+                <label className="mb-1 block text-xs text-[var(--color-muted)]">
+                  Model
+                </label>
+                <select
+                  value={model}
+                  onChange={(e) => {
+                    setModel(e.target.value);
+                    setWarming(true);
+                    warmupModel(e.target.value).finally(() => setWarming(false));
+                  }}
+                  className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-3)] px-3 py-2 text-sm"
+                >
+                  {status.models.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </aside>
+        )}
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {status && !status.connected && (
             <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 sm:px-8">
               {status?.error ??
                 (web
-                  ? "AI coach is temporarily unavailable. Try again in a moment, or use the desktop app with Ollama."
+                  ? "AI coach is temporarily unavailable. Try again in a moment."
                   : "Ollama not connected. Install from ollama.com and run: ollama pull llama3.1")}
             </div>
           )}
@@ -147,7 +353,7 @@ export function Coach() {
 
           {loading && !streamText && (
             <div className="border-b border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-2 text-xs text-[var(--color-muted)] sm:px-8">
-              Getting a reply (usually under 10s)…
+              Getting a reply…
             </div>
           )}
 
@@ -157,16 +363,15 @@ export function Coach() {
                 <div className="text-center text-[var(--color-muted)]">
                   <Bot className="mx-auto mb-3 h-12 w-12 opacity-40" />
                   <p>Ask your AI coach anything about tournament preparation.</p>
-                  {web && (
-                    <p className="mt-2 text-xs">
-                      Free cloud coach — replies usually arrive in a few seconds.
-                    </p>
-                  )}
+                  <p className="mt-2 text-xs">
+                    Past chats stay in the sidebar — start a new one anytime.
+                  </p>
                 </div>
                 <div className="grid gap-2">
                   {SUGGESTIONS.map((s) => (
                     <button
                       key={s}
+                      type="button"
                       onClick={() => send(s)}
                       disabled={loading || !canSend}
                       className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-3 text-left text-sm hover:border-[var(--color-accent)] disabled:opacity-50"
@@ -187,10 +392,10 @@ export function Coach() {
                       <Bot className="mt-1 h-5 w-5 shrink-0 text-[var(--color-accent)]" />
                     )}
                     <div
-                      className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-relaxed ${
+                      className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-4 py-3 text-sm leading-relaxed ${
                         m.role === "user"
                           ? "bg-[var(--color-accent)] text-white"
-                          : "bg-[var(--color-surface-2)] border border-[var(--color-border)]"
+                          : "border border-[var(--color-border)] bg-[var(--color-surface-2)]"
                       }`}
                     >
                       {m.content}
@@ -203,17 +408,9 @@ export function Coach() {
                 {streamText && (
                   <div className="flex gap-3">
                     <Bot className="mt-1 h-5 w-5 shrink-0 text-[var(--color-accent)]" />
-                    <div className="max-w-[85%] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-3 text-sm leading-relaxed">
+                    <div className="max-w-[85%] whitespace-pre-wrap rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-3 text-sm leading-relaxed">
                       {streamText}
                       <span className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-[var(--color-accent)]" />
-                    </div>
-                  </div>
-                )}
-                {loading && !streamText && (
-                  <div className="flex gap-3">
-                    <Bot className="h-5 w-5 text-[var(--color-accent)]" />
-                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-3 text-sm text-[var(--color-muted)]">
-                      Thinking…
                     </div>
                   </div>
                 )}
@@ -246,40 +443,6 @@ export function Coach() {
             </form>
           </div>
         </div>
-
-        <aside className="shrink-0 space-y-4 border-t border-[var(--color-border)] p-4 lg:w-64 lg:border-l lg:border-t-0">
-          <Card title={web ? "Cloud coach" : "Model"}>
-            {web ? (
-              <p className="text-xs text-[var(--color-muted)]">
-                {status?.connected
-                  ? "Ready — no signup required"
-                  : status
-                    ? "Unavailable"
-                    : "Checking…"}
-              </p>
-            ) : status?.connected && status.models.length > 0 ? (
-              <select
-                value={model}
-                onChange={(e) => {
-                  setModel(e.target.value);
-                  setWarming(true);
-                  warmupModel(e.target.value).finally(() => setWarming(false));
-                }}
-                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-3)] px-3 py-2 text-sm"
-              >
-                {status.models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="text-xs text-[var(--color-muted)]">
-                Connect Ollama to select a model
-              </p>
-            )}
-          </Card>
-        </aside>
       </div>
     </div>
   );

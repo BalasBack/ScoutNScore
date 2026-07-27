@@ -2,13 +2,21 @@ import type { AccountSettings, GameAnalysis, GameRecord } from "../types";
 import { shouldRelabelAsScout } from "../repair-scout-games";
 
 const DB_NAME = "chessscope-web";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 type StoredGame = GameRecord & {
   own_color: string | null;
   analyzed_at: string | null;
   avg_cp_loss: number | null;
   position_evals_json: string | null;
+};
+
+export type CoachChatRecord = {
+  id: string;
+  title: string;
+  messages: Array<{ role: string; content: string }>;
+  created_at: number;
+  updated_at: number;
 };
 
 function openDb(): Promise<IDBDatabase> {
@@ -35,6 +43,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("puzzle_attempts")) {
         db.createObjectStore("puzzle_attempts", { keyPath: "puzzle_id" });
+      }
+      if (!db.objectStoreNames.contains("coach_chats")) {
+        const chats = db.createObjectStore("coach_chats", { keyPath: "id" });
+        chats.createIndex("by_updated", "updated_at");
       }
     };
   });
@@ -250,6 +262,64 @@ export async function repairScoutGames(): Promise<{ fixed: number; message: stri
         ? `Relabeled ${fixed} game(s) as scouted opponent games. Your dashboard stats are updated.`
         : "No mislabeled scout games found — everything looks correct.",
   };
+}
+
+function newChatId(): string {
+  return `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function titleFromMessages(
+  messages: Array<{ role: string; content: string }>,
+): string {
+  const first = messages.find((m) => m.role === "user")?.content?.trim();
+  if (!first) return "New chat";
+  const oneLine = first.replace(/\s+/g, " ");
+  return oneLine.length > 48 ? `${oneLine.slice(0, 45)}…` : oneLine;
+}
+
+export async function listCoachChats(): Promise<CoachChatRecord[]> {
+  const all = await tx<CoachChatRecord[]>("coach_chats", "readonly", (s) =>
+    s.getAll(),
+  );
+  return all.sort((a, b) => b.updated_at - a.updated_at);
+}
+
+export async function getCoachChat(id: string): Promise<CoachChatRecord | null> {
+  const row = await tx<CoachChatRecord | undefined>(
+    "coach_chats",
+    "readonly",
+    (s) => s.get(id),
+  );
+  return row ?? null;
+}
+
+export async function createCoachChat(): Promise<CoachChatRecord> {
+  const now = Date.now();
+  const chat: CoachChatRecord = {
+    id: newChatId(),
+    title: "New chat",
+    messages: [],
+    created_at: now,
+    updated_at: now,
+  };
+  await tx("coach_chats", "readwrite", (s) => s.put(chat));
+  return chat;
+}
+
+export async function saveCoachChat(
+  chat: CoachChatRecord,
+): Promise<CoachChatRecord> {
+  const next: CoachChatRecord = {
+    ...chat,
+    title: titleFromMessages(chat.messages),
+    updated_at: Date.now(),
+  };
+  await tx("coach_chats", "readwrite", (s) => s.put(next));
+  return next;
+}
+
+export async function deleteCoachChat(id: string): Promise<void> {
+  await tx("coach_chats", "readwrite", (s) => s.delete(id));
 }
 
 export type { StoredGame };
