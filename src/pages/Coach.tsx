@@ -147,7 +147,7 @@ export function Coach() {
 
           {loading && !streamText && (
             <div className="border-b border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-2 text-xs text-[var(--color-muted)] sm:px-8">
-              Generating…
+              Getting a reply (usually under 10s)…
             </div>
           )}
 
@@ -159,7 +159,7 @@ export function Coach() {
                   <p>Ask your AI coach anything about tournament preparation.</p>
                   {web && (
                     <p className="mt-2 text-xs">
-                      Uses the fastest free cloud models — replies stream as they generate.
+                      Free cloud coach — replies usually arrive in a few seconds.
                     </p>
                   )}
                 </div>
