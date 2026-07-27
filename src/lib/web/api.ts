@@ -136,12 +136,10 @@ export const webApi: ChessScopeApi = {
   checkOllama: async () => checkWebCoach(),
 
   coachChat: async (_model, messages) => {
-    const settings = await db.getSettings();
     const stats = await getPlayerStats();
     return webCoachChat(
       messages,
       formatCoachProfile(stats),
-      settings.gemini_api_key,
     );
   },
 

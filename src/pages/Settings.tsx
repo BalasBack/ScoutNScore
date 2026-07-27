@@ -17,7 +17,6 @@ export function SettingsPage() {
     default_game_count: 100,
     theme: "slate",
     compact_ui: false,
-    gemini_api_key: null,
   });
   const [ollama, setOllama] = useState<OllamaStatus | null>(null);
   const [stockfish, setStockfish] = useState<StockfishStatus | null>(null);
@@ -284,27 +283,8 @@ export function SettingsPage() {
                   )}
                 </div>
                 <p className="text-sm text-[var(--color-muted)]">
-                  Website AI Coach tries a free cloud model first. If that service is down, add a free{" "}
-                  <a
-                    href="https://aistudio.google.com/apikey"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[var(--color-accent)] underline"
-                  >
-                    Gemini API key
-                  </a>{" "}
-                  below as a backup.
+                  Free cloud coach — no signup required. Tries several free models with automatic retry.
                 </p>
-                <div>
-                  <Label>Gemini API key (optional backup)</Label>
-                  <Input
-                    type="password"
-                    value={settings.gemini_api_key ?? ""}
-                    onChange={(e) => update("gemini_api_key", e.target.value)}
-                    placeholder="AIza…"
-                    autoComplete="off"
-                  />
-                </div>
               </>
             ) : (
               <>

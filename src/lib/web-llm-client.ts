@@ -1,237 +1,277 @@
 import type { CoachMessage, OllamaStatus } from "./types";
-import { getSettings } from "./web/db";
 
-/** Legacy Pollinations OpenAI-compatible endpoint (still works for many clients). */
-const POLLINATIONS_CHAT = "https://text.pollinations.ai/openai";
-/** Simple GET text generation fallback. */
-const POLLINATIONS_TEXT = "https://text.pollinations.ai";
+/** Free anonymous Pollinations endpoints (no API key). */
+const CHAT_URL = "https://text.pollinations.ai/openai";
+const TEXT_URL = "https://text.pollinations.ai";
 
-const GEMINI_MODELS = [
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
+/** Prefer smaller/faster free models; try one-at-a-time to avoid 429 storms. */
+const FREE_MODELS = [
+  "openai-fast",
+  "gemini-fast",
+  "nova-fast",
+  "mistral",
+  "openai",
 ] as const;
 
-export async function checkWebCoach(): Promise<OllamaStatus> {
+const REQUEST_TIMEOUT_MS = 16_000;
+const MAX_OUTPUT_TOKENS = 200;
+const MAX_HISTORY = 5;
+const MAX_RETRIES_429 = 3;
+
+export function setCoachProfileCache(_summary: string | null) {
+  // reserved for future prefetch hooks
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function isRateLimited(status: number, message: string): boolean {
+  return status === 429 || /429|rate.?limit|too many/i.test(message);
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  ms = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), ms);
   try {
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 12_000);
-    const res = await fetch(
-      `${POLLINATIONS_TEXT}/${encodeURIComponent("ping")}?model=openai`,
-      { signal: controller.signal },
-    );
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
     clearTimeout(t);
-    if (res.ok) {
-      return { connected: true, models: ["openai", "gemini"], error: null };
-    }
-  } catch {
-    /* try settings key below */
   }
+}
 
-  try {
-    const s = await getSettings();
-    if (s.gemini_api_key?.trim()) {
-      return {
-        connected: true,
-        models: ["gemini"],
-        error: null,
-      };
-    }
-  } catch {
-    /* ignore */
-  }
-
-  return {
-    connected: true,
-    models: ["openai", "gemini"],
-    error: null,
-  };
+export async function checkWebCoach(): Promise<OllamaStatus> {
+  // Do not ping the free API — pings burn rate limits and cause 429s.
+  return { connected: true, models: [...FREE_MODELS], error: null };
 }
 
 function systemPrompt(profileSummary: string): string {
-  return `You are ScoutNScore AI Coach for USCF/FIDE chess tournament prep. Be concrete and actionable. Keep answers to 2-4 short paragraphs unless asked for more.
+  return `Chess coach. Max 2 short paragraphs. Concrete tips only.
 
-PLAYER STATS:
-${profileSummary}`;
+PLAYER:
+${profileSummary.slice(0, 900)}`;
 }
 
 function buildMessages(
   messages: CoachMessage[],
   profileSummary: string,
 ): Array<{ role: string; content: string }> {
+  const recent = messages.slice(-MAX_HISTORY);
   return [
     { role: "system", content: systemPrompt(profileSummary) },
-    ...messages.map((m) => ({
+    ...recent.map((m) => ({
       role: m.role === "assistant" ? "assistant" : "user",
-      content: m.content,
+      content: m.content.slice(0, 1500),
     })),
   ];
 }
 
-async function chatPollinationsPost(
-  messages: Array<{ role: string; content: string }>,
-): Promise<string> {
-  const models = ["openai", "mistral", "openai-fast"];
-  let lastErr = "Pollinations unavailable";
-  for (const model of models) {
-    try {
-      const res = await fetch(POLLINATIONS_CHAT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          messages,
-          temperature: 0.6,
-          max_tokens: 700,
-        }),
-      });
-      if (!res.ok) {
-        lastErr = `Pollinations ${model} (${res.status})`;
-        continue;
-      }
-      const data = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const content = data.choices?.[0]?.message?.content?.trim();
-      if (content) return content;
-      lastErr = "Empty Pollinations reply";
-    } catch (e) {
-      lastErr = e instanceof Error ? e.message : String(e);
-    }
-  }
-  throw new Error(lastErr);
+function parseChatJson(data: unknown): string | null {
+  const d = data as {
+    choices?: Array<{ message?: { content?: string }; text?: string }>;
+  };
+  return (
+    d.choices?.[0]?.message?.content?.trim() ||
+    d.choices?.[0]?.text?.trim() ||
+    null
+  );
 }
 
-async function chatPollinationsGet(
+async function postChat(
+  model: string,
   messages: Array<{ role: string; content: string }>,
-): Promise<string> {
-  const flat = messages
-    .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
-    .join("\n\n");
-  const url =
-    `${POLLINATIONS_TEXT}/${encodeURIComponent(flat)}` +
-    `?model=openai&timestamp=${Date.now()}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Pollinations GET failed (${res.status})`);
-  }
-  const text = (await res.text()).trim();
-  if (!text) throw new Error("Empty Pollinations GET reply");
-  return text;
+  stream: boolean,
+): Promise<Response> {
+  return fetchWithTimeout(CHAT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.4,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      stream,
+    }),
+  });
 }
 
-async function chatGemini(
-  apiKey: string,
+/** Alternate GET endpoint — often has a separate free quota. */
+async function getText(
+  model: string,
   messages: Array<{ role: string; content: string }>,
 ): Promise<string> {
   const system = messages.find((m) => m.role === "system")?.content ?? "";
-  const contents = messages
+  const userParts = messages
     .filter((m) => m.role !== "system")
-    .map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
+    .map((m) => `${m.role}: ${m.content}`)
+    .join("\n");
+  const prompt = userParts.slice(0, 1800);
+  const url =
+    `${TEXT_URL}/${encodeURIComponent(prompt)}` +
+    `?model=${encodeURIComponent(model)}` +
+    `&system=${encodeURIComponent(system.slice(0, 800))}`;
+  const res = await fetchWithTimeout(url, { method: "GET" });
+  if (!res.ok) throw new Error(`GET ${model} (${res.status})`);
+  const text = (await res.text()).trim();
+  if (!text) throw new Error(`GET ${model} empty`);
+  // Avoid returning HTML error pages
+  if (text.startsWith("<!DOCTYPE") || text.startsWith("<html")) {
+    throw new Error(`GET ${model} bad response`);
+  }
+  return text;
+}
 
-  let lastErr = "Gemini unavailable";
-  for (const model of GEMINI_MODELS) {
+async function withBackoff429<T>(fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_RETRIES_429; attempt++) {
     try {
-      const url =
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent` +
-        `?key=${encodeURIComponent(apiKey)}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: system }] },
-          contents,
-          generationConfig: {
-            temperature: 0.6,
-            maxOutputTokens: 700,
-          },
-        }),
-      });
-      if (!res.ok) {
-        lastErr = `Gemini ${model} (${res.status})`;
-        continue;
-      }
-      const data = (await res.json()) as {
-        candidates?: Array<{
-          content?: { parts?: Array<{ text?: string }> };
-        }>;
-      };
-      const content = data.candidates?.[0]?.content?.parts
-        ?.map((p) => p.text ?? "")
-        .join("")
-        .trim();
-      if (content) return content;
-      lastErr = "Empty Gemini reply";
+      return await fn();
     } catch (e) {
-      lastErr = e instanceof Error ? e.message : String(e);
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      const statusMatch = msg.match(/\((\d{3})\)/);
+      const status = statusMatch ? Number(statusMatch[1]) : 0;
+      if (!isRateLimited(status, msg) || attempt === MAX_RETRIES_429 - 1) {
+        throw e;
+      }
+      // Exponential backoff + jitter: ~0.8s, 1.6s, 3.2s
+      const wait = 800 * 2 ** attempt + Math.floor(Math.random() * 400);
+      await sleep(wait);
     }
   }
-  throw new Error(lastErr);
+  throw lastErr;
+}
+
+async function chatModelOnce(
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+): Promise<string> {
+  const res = await postChat(model, messages, false);
+  if (!res.ok) throw new Error(`${model} (${res.status})`);
+  const content = parseChatJson(await res.json());
+  if (!content) throw new Error(`${model} empty`);
+  return content;
+}
+
+async function chatModel(
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+): Promise<string> {
+  return withBackoff429(() => chatModelOnce(model, messages));
+}
+
+async function* streamModel(
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+): AsyncGenerator<string, void, unknown> {
+  const res = await withBackoff429(async () => {
+    const r = await postChat(model, messages, true);
+    if (!r.ok) throw new Error(`${model} stream (${r.status})`);
+    return r;
+  });
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error(`${model} no stream body`);
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let gotContent = false;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const json = JSON.parse(payload) as {
+          choices?: Array<{
+            delta?: { content?: string };
+            message?: { content?: string };
+            text?: string;
+          }>;
+        };
+        const chunk =
+          json.choices?.[0]?.delta?.content ??
+          json.choices?.[0]?.message?.content ??
+          json.choices?.[0]?.text ??
+          "";
+        if (chunk) {
+          gotContent = true;
+          yield chunk;
+        }
+      } catch {
+        /* partial SSE */
+      }
+    }
+  }
+
+  if (!gotContent) throw new Error(`${model} empty stream`);
+}
+
+/** Try free models sequentially; on failure try GET endpoint for that model. */
+async function freeCoachReply(
+  messages: Array<{ role: string; content: string }>,
+): Promise<string> {
+  const errors: string[] = [];
+  for (const model of FREE_MODELS) {
+    try {
+      return await chatModel(model, messages);
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : String(e));
+    }
+    try {
+      return await withBackoff429(() => getText(model, messages));
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : String(e));
+    }
+  }
+  throw new Error(
+    "The free coach is busy right now. Wait a few seconds and try again.",
+  );
 }
 
 export async function webCoachChat(
   messages: CoachMessage[],
   profileSummary: string,
-  geminiApiKey?: string | null,
 ): Promise<string> {
-  const packed = buildMessages(messages, profileSummary);
-  const errors: string[] = [];
-
-  // Prefer free Pollinations first (no signup)
-  try {
-    return await chatPollinationsPost(packed);
-  } catch (e) {
-    errors.push(e instanceof Error ? e.message : String(e));
-  }
-
-  try {
-    return await chatPollinationsGet(packed);
-  } catch (e) {
-    errors.push(e instanceof Error ? e.message : String(e));
-  }
-
-  const key =
-    geminiApiKey?.trim() ||
-    (await getSettings().catch(() => null))?.gemini_api_key?.trim() ||
-    null;
-  if (key) {
-    try {
-      return await chatGemini(key, packed);
-    } catch (e) {
-      errors.push(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  throw new Error(
-    `AI coach is unavailable right now. ${errors.slice(0, 2).join(" · ") || "Try again shortly."}` +
-      (!key
-        ? " You can also add a free Gemini API key in Settings as a backup."
-        : ""),
-  );
+  return freeCoachReply(buildMessages(messages, profileSummary));
 }
 
 export async function* webCoachStream(
   messages: CoachMessage[],
   profileSummary: string,
-  geminiApiKey?: string | null,
 ): AsyncGenerator<string, void, unknown> {
-  const text = await webCoachChat(messages, profileSummary, geminiApiKey);
-  const size = 32;
-  for (let i = 0; i < text.length; i += size) {
-    yield text.slice(i, i + size);
-    await new Promise((r) => setTimeout(r, 8));
+  const packed = buildMessages(messages, profileSummary);
+
+  for (const model of FREE_MODELS) {
+    try {
+      yield* streamModel(model, packed);
+      return;
+    } catch {
+      /* try next model / non-stream */
+    }
   }
+
+  const text = await freeCoachReply(packed);
+  yield text;
 }
 
 export async function warmupWebCoach(): Promise<void> {
-  // Cloud API — nothing to preload
+  // Intentionally empty — warmup burned free-tier rate limits (429).
 }
 
 export function setWebCoachProgress(
   _cb: ((message: string, percent: number | null) => void) | null,
 ) {
-  // no-op (kept for Coach.tsx compatibility)
+  // no-op
 }

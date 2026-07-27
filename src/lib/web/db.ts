@@ -73,7 +73,6 @@ export async function getSettings(): Promise<AccountSettings> {
       default_game_count: 100,
       theme: "slate",
       compact_ui: false,
-      gemini_api_key: null,
     };
   }
   return JSON.parse(row.value);

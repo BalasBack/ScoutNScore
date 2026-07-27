@@ -8,7 +8,12 @@ import {
   formatCoachProfile,
   warmupModel,
 } from "../lib/ollama-client";
-import { checkWebCoach, webCoachStream } from "../lib/web-llm-client";
+import {
+  checkWebCoach,
+  setCoachProfileCache,
+  warmupWebCoach,
+  webCoachStream,
+} from "../lib/web-llm-client";
 import { Button, Card, Input } from "../components/ui";
 
 const SUGGESTIONS = [
@@ -39,10 +44,16 @@ export function Coach() {
   const [warming, setWarming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const profileRef = useRef<string>("No games imported yet.");
 
   useEffect(() => {
     if (web) {
       checkWebCoach().then(setStatus);
+      void warmupWebCoach();
+      api.getPlayerStats().then((stats) => {
+        profileRef.current = formatCoachProfile(stats);
+        setCoachProfileCache(profileRef.current);
+      });
       return;
     }
 
@@ -74,14 +85,13 @@ export function Coach() {
 
     let reply = "";
     try {
-      const [stats, settings] = await Promise.all([
-        api.getPlayerStats(),
-        api.getSettings(),
-      ]);
-      const profile = formatCoachProfile(stats);
       const stream = web
-        ? webCoachStream(next, profile, settings.gemini_api_key)
-        : coachChatStream(model, next, profile);
+        ? webCoachStream(next, profileRef.current)
+        : coachChatStream(
+            model,
+            next,
+            formatCoachProfile(await api.getPlayerStats()),
+          );
       for await (const chunk of stream) {
         reply += chunk;
         setStreamText(reply);
@@ -113,7 +123,7 @@ export function Coach() {
         <h1 className="text-xl font-bold">AI Coach</h1>
         <p className="text-sm text-[var(--color-muted)]">
           {web
-            ? "Free cloud coach — no signup or API key needed"
+            ? "Fast free cloud coach — no signup or API key"
             : "Local coaching via Ollama — powered by your game stats"}
         </p>
       </header>
@@ -149,7 +159,7 @@ export function Coach() {
                   <p>Ask your AI coach anything about tournament preparation.</p>
                   {web && (
                     <p className="mt-2 text-xs">
-                      Replies usually arrive in a few seconds — no account needed.
+                      Uses the fastest free cloud models — replies stream as they generate.
                     </p>
                   )}
                 </div>
