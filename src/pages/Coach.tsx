@@ -74,10 +74,13 @@ export function Coach() {
 
     let reply = "";
     try {
-      const stats = await api.getPlayerStats();
+      const [stats, settings] = await Promise.all([
+        api.getPlayerStats(),
+        api.getSettings(),
+      ]);
       const profile = formatCoachProfile(stats);
       const stream = web
-        ? webCoachStream(next, profile)
+        ? webCoachStream(next, profile, settings.gemini_api_key)
         : coachChatStream(model, next, profile);
       for await (const chunk of stream) {
         reply += chunk;

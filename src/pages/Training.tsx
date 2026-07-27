@@ -5,6 +5,7 @@ import { Button, Card } from "../components/ui";
 import { ChessBoardView } from "../components/ChessBoard";
 import {
   fenAfterUci,
+  explainBestMove,
   sanitizeOpeningLabel,
   uciToSan,
 } from "../lib/chess";
@@ -28,11 +29,13 @@ export function Training() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [solvedCount, setSolvedCount] = useState(0);
+  const [explanation, setExplanation] = useState<string | null>(null);
 
   const startPuzzle = useCallback((p: BlunderPuzzle) => {
     setPuzzle(p);
     setFen(p.fen);
     setFeedback(null);
+    setExplanation(null);
     setSolved(null);
     setAttemptStart(Date.now());
   }, []);
@@ -105,15 +108,40 @@ export function Training() {
       setSolved(true);
       const bestSan = uciToSan(puzzle.fen, puzzle.best_move_uci);
       setFeedback(`Correct! ${bestSan ?? puzzle.best_move_uci}`);
+      setExplanation(
+        explainBestMove(
+          puzzle.fen,
+          puzzle.best_move_uci,
+          puzzle.played_move,
+          puzzle.cp_loss,
+        ),
+      );
       setFen(fenAfterUci(puzzle.fen, puzzle.best_move_uci));
       setSolvedCount((c) => c + 1);
     } else {
       setSolved(false);
+      setExplanation(null);
       setFeedback(
-        `Not quite — you played ${puzzle.played_move}. Try again or skip.`,
+        `Not quite — you played ${puzzle.played_move}. Try again or reveal the solution.`,
       );
     }
     return isCorrect;
+  };
+
+  const revealSolution = () => {
+    if (!puzzle) return;
+    const bestSan = uciToSan(puzzle.fen, puzzle.best_move_uci);
+    setSolved(false);
+    setFeedback(`Solution: ${bestSan ?? puzzle.best_move_uci}`);
+    setExplanation(
+      explainBestMove(
+        puzzle.fen,
+        puzzle.best_move_uci,
+        puzzle.played_move,
+        puzzle.cp_loss,
+      ),
+    );
+    setFen(fenAfterUci(puzzle.fen, puzzle.best_move_uci));
   };
 
   const openingName = puzzle
@@ -165,7 +193,7 @@ export function Training() {
               </div>
               {feedback && (
                 <div
-                  className={`mt-4 flex items-center gap-2 rounded-lg px-4 py-3 text-sm ${
+                  className={`mt-4 flex items-start gap-2 rounded-lg px-4 py-3 text-sm ${
                     solved
                       ? "bg-emerald-500/10 text-emerald-300"
                       : solved === false
@@ -174,28 +202,41 @@ export function Training() {
                   }`}
                 >
                   {solved ? (
-                    <CheckCircle className="h-4 w-4 shrink-0" />
+                    <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   ) : solved === false ? (
-                    <XCircle className="h-4 w-4 shrink-0" />
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   ) : null}
-                  {feedback}
+                  <div className="min-w-0 space-y-1">
+                    <div>{feedback}</div>
+                    {explanation && (
+                      <p className="text-[var(--color-muted)] leading-relaxed">
+                        {explanation}
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
-              <div className="mt-4 flex gap-2">
-                {solved === false && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setFen(puzzle.fen);
-                      setFeedback(null);
-                      setSolved(null);
-                      setAttemptStart(Date.now());
-                    }}
-                  >
-                    Try again
-                  </Button>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {solved === false && !explanation && (
+                  <>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setFen(puzzle.fen);
+                        setFeedback(null);
+                        setExplanation(null);
+                        setSolved(null);
+                        setAttemptStart(Date.now());
+                      }}
+                    >
+                      Try again
+                    </Button>
+                    <Button variant="secondary" onClick={revealSolution}>
+                      Show solution
+                    </Button>
+                  </>
                 )}
-                {solved !== null && (
+                {(solved === true || explanation) && (
                   <Button onClick={advance}>
                     {queue.length > 1 ? "Next puzzle" : "Finish set"}
                   </Button>

@@ -198,6 +198,78 @@ export function uciToSan(fen: string, uci: string): string | null {
   }
 }
 
+/** Short human explanation of why the engine move is better than the blunder. */
+export function explainBestMove(
+  fen: string,
+  bestUci: string,
+  playedBlunderSan: string,
+  cpLoss: number,
+): string {
+  try {
+    const chess = new Chess(fen);
+    const from = bestUci.slice(0, 2);
+    const to = bestUci.slice(2, 4);
+    const promotion = bestUci.length > 4 ? bestUci[4] : undefined;
+    const move = chess.move({ from, to, promotion });
+    if (!move) {
+      return `The best move was ${bestUci}. Your game continued with ${playedBlunderSan}, costing about ${(cpLoss / 100).toFixed(1)} pawns.`;
+    }
+
+    const parts: string[] = [];
+    const san = move.san;
+    parts.push(`Best was ${san}.`);
+
+    if (move.flags.includes("k") || move.flags.includes("q")) {
+      parts.push("Castling improves king safety and connects the rooks.");
+    } else if (move.captured) {
+      const cap =
+        move.captured === "p"
+          ? "pawn"
+          : move.captured === "n"
+            ? "knight"
+            : move.captured === "b"
+              ? "bishop"
+              : move.captured === "r"
+                ? "rook"
+                : move.captured === "q"
+                  ? "queen"
+                  : "piece";
+      parts.push(
+        move.san.includes("x")
+          ? `It wins (or reclaims) material by taking the ${cap} on ${move.to}.`
+          : `It captures on ${move.to}.`,
+      );
+    } else if (move.san.includes("+") || move.san.includes("#")) {
+      parts.push(
+        move.san.includes("#")
+          ? "It delivers checkmate."
+          : "The check forces a reply and seizes the initiative.",
+      );
+    } else if (move.piece === "p" && (move.to[1] === "7" || move.to[1] === "2")) {
+      parts.push("The advanced pawn creates promotion threats.");
+    } else if (move.piece === "n" || move.piece === "b") {
+      parts.push(
+        `The ${move.piece === "n" ? "knight" : "bishop"} improves to a stronger square (${move.to}).`,
+      );
+    } else if (move.piece === "r" || move.piece === "q") {
+      parts.push(
+        `Activating the ${move.piece === "r" ? "rook" : "queen"} increases pressure.`,
+      );
+    } else if (move.piece === "k") {
+      parts.push("The king move improves safety or prepares the next idea.");
+    } else {
+      parts.push(`It places the piece on a better square (${move.from}→${move.to}).`);
+    }
+
+    parts.push(
+      `In the game you played ${playedBlunderSan}, giving up about ${(cpLoss / 100).toFixed(1)} pawns of evaluation.`,
+    );
+    return parts.join(" ");
+  } catch {
+    return `The engine preferred ${bestUci} over ${playedBlunderSan} (about ${(cpLoss / 100).toFixed(1)} pawns better).`;
+  }
+}
+
 /** Turn Lichess opening URLs into readable names; pass through normal labels. */
 export function isEcoCode(value: string): boolean {
   return /^[A-E]\d{2}(?:-\d+)?$/i.test(value.trim());
