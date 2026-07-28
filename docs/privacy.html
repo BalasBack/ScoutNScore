@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy Policy — ScoutNScore</title>
+  <meta name="description" content="Privacy Policy for the ScoutNScore Android application." />
+  <style>
+    :root {
+      --bg: #0b1220;
+      --text: #e8eef7;
+      --muted: #9aa8bc;
+      --accent: #3b82f6;
+      --card: #121a2b;
+      --border: #243147;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      background: radial-gradient(1200px 600px at 20% -10%, #1a2744, var(--bg));
+      color: var(--text);
+      line-height: 1.65;
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 4rem;
+    }
+    h1 {
+      font-size: 2rem;
+      margin: 0 0 0.35rem;
+      letter-spacing: -0.02em;
+    }
+    .meta { color: var(--muted); font-size: 0.95rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1.25rem;
+      margin: 2rem 0 0.75rem;
+      border-top: 1px solid var(--border);
+      padding-top: 1.25rem;
+    }
+    p, li { color: #d7e0ec; }
+    ul { padding-left: 1.25rem; }
+    li { margin: 0.35rem 0; }
+    a { color: var(--accent); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.15rem;
+      margin: 1rem 0 1.5rem;
+    }
+    .card strong { color: #fff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Privacy Policy</h1>
+    <p class="meta">
+      <strong>ScoutNScore</strong> (Android package <code>com.scoutnscore.app</code>)<br />
+      Effective date: July 27, 2026<br />
+      Last updated: July 27, 2026
+    </p>
+
+    <div class="card">
+      <strong>Summary:</strong> ScoutNScore stores your chess data on your device.
+      We do not create user accounts, show ads, or sell your personal information.
+      Optional features may send limited data (such as usernames or coach prompts)
+      to third-party chess or AI services you choose to use.
+    </div>
+
+    <p>
+      This Privacy Policy describes how the ScoutNScore mobile application
+      (“App,” “we,” “us,” or “our”) handles information when you use the App.
+      It is intended to help you and Google Play reviewers understand our data practices.
+    </p>
+
+    <h2>1. Who we are</h2>
+    <p>
+      ScoutNScore is a chess preparation tool that helps you import games, analyze positions,
+      scout opponents, train tactics, and chat with an on-device / free-cloud coach experience.
+    </p>
+    <p>
+      Contact for privacy questions:
+      <a href="mailto:REPLACE_WITH_YOUR_EMAIL@example.com">REPLACE_WITH_YOUR_EMAIL@example.com</a>
+      (replace this with your real contact email before publishing).
+    </p>
+
+    <h2>2. Information we collect</h2>
+    <p>The App is designed to work primarily with data stored on your device.</p>
+
+    <h3>2.1 Information you provide</h3>
+    <ul>
+      <li>Chess.com and/or Lichess usernames you enter for importing your games</li>
+      <li>Opponent or player names/IDs you search for in Opponent Scout (including FIDE, USCF, or ChessGames lookups)</li>
+      <li>Messages you type into the AI Coach</li>
+      <li>App settings you choose (theme, import preferences, and similar options)</li>
+    </ul>
+
+    <h3>2.2 Information created on your device</h3>
+    <ul>
+      <li>Imported chess games (including PGN content) and analysis results</li>
+      <li>Coach chat history and chat titles</li>
+      <li>Local preferences (for example, welcome-screen state or recent lookups)</li>
+    </ul>
+    <p>
+      This information is stored locally using on-device storage technologies such as IndexedDB and local storage.
+      It is not uploaded to a ScoutNScore account server because the App does not operate user accounts.
+    </p>
+
+    <h3>2.3 Information we do not intentionally collect</h3>
+    <ul>
+      <li>We do not require you to create an account or provide your real name, email, or phone number to use the App</li>
+      <li>We do not collect precise location, contacts, photos, microphone, or camera data</li>
+      <li>We do not use advertising SDKs, and we do not sell personal information</li>
+      <li>We do not integrate Firebase Analytics, Crashlytics, or similar analytics/crash products in the current App build</li>
+    </ul>
+
+    <h2>3. How we use information</h2>
+    <p>We use on-device and feature-related information only to provide App functionality, including to:</p>
+    <ul>
+      <li>Import and display your chess games</li>
+      <li>Run Stockfish analysis on your device</li>
+      <li>Build opponent dossiers and training recommendations</li>
+      <li>Power the AI Coach and keep your chat history on the device</li>
+      <li>Remember your settings and improve the in-app experience</li>
+    </ul>
+
+    <h2>4. Network requests and third parties</h2>
+    <p>
+      When you use certain features, the App contacts third-party services over the internet.
+      Those services process the data needed to fulfill your request under their own terms and privacy policies.
+      ScoutNScore does not control third-party practices.
+    </p>
+    <ul>
+      <li><strong>Lichess</strong> — public profile/game import and player search when you use Lichess features</li>
+      <li><strong>Chess.com</strong> — public profile/game import when you use Chess.com features</li>
+      <li><strong>FIDE Ratings</strong> — public player search for Opponent Scout</li>
+      <li><strong>US Chess (USCF) ratings API</strong> — public member search/ratings for Opponent Scout</li>
+      <li><strong>ChessGames.com</strong> — public player/game lookups for Opponent Scout</li>
+      <li><strong>Free AI text providers</strong> (for example Pollinations and related free proxy endpoints) — coach prompts and related conversation context you submit, so a reply can be generated</li>
+      <li><strong>CORS helper proxies</strong> (for example corsproxy.io or allorigins) — may be used as a technical relay when a chess website blocks direct browser requests</li>
+    </ul>
+    <p>
+      Data sent to these services is limited to what the feature needs (such as a username, search query, game ID, or coach prompt).
+      Do not enter sensitive personal information into the Coach or search fields.
+    </p>
+
+    <h2>5. Permissions</h2>
+    <p>
+      The Android App requests the <strong>Internet</strong> permission to fetch games, ratings, and coach responses.
+      It does not require access to your contacts, camera, microphone, or precise location.
+    </p>
+
+    <h2>6. Data sharing, sale, and advertising</h2>
+    <ul>
+      <li>We do not sell your personal information</li>
+      <li>We do not share data with data brokers</li>
+      <li>We do not show third-party ads in the App</li>
+      <li>We share data with third parties only as needed to operate features you request (Section 4)</li>
+    </ul>
+
+    <h2>7. Data retention and deletion</h2>
+    <p>
+      Because data is stored on your device, retention is controlled by you.
+      You can delete App data by clearing the App’s storage in Android settings, uninstalling the App,
+      or using in-App controls where available (for example deleting coach chats).
+      Uninstalling the App removes locally stored App data from that device.
+    </p>
+
+    <h2>8. Security</h2>
+    <p>
+      We take reasonable steps appropriate for an on-device app, including limiting collection and relying on platform storage.
+      No method of electronic storage or internet transmission is 100% secure.
+    </p>
+
+    <h2>9. Children’s privacy</h2>
+    <p>
+      The App is a general-audience chess training tool and is not directed to children under 13.
+      We do not knowingly collect personal information from children under 13.
+      If you believe a child has provided personal information through the App, contact us and we will help you remove local data where feasible.
+    </p>
+
+    <h2>10. International users</h2>
+    <p>
+      Third-party services you access through the App may process data in other countries.
+      By using those features, you understand that your requests may be handled outside your home country
+      according to the third party’s policies.
+    </p>
+
+    <h2>11. Your choices and rights</h2>
+    <ul>
+      <li>You can use many App features without entering account usernames</li>
+      <li>You can avoid Coach or Scout features if you do not want related network requests</li>
+      <li>You can delete local data via Android App info → Storage → Clear data, or by uninstalling</li>
+    </ul>
+    <p>
+      Depending on where you live, you may have rights to access, delete, or restrict processing of personal information.
+      Because ScoutNScore does not operate a cloud account for your App data, most requests are handled by managing data on your device.
+    </p>
+
+    <h2>12. Google Play Data safety disclosures</h2>
+    <p>For Google Play Console, our intended Data safety answers are:</p>
+    <ul>
+      <li>Data is collected/processed mainly on-device; optional feature data is sent to third-party services you invoke</li>
+      <li>No account creation by ScoutNScore</li>
+      <li>No sale of data; no ad personalization by ScoutNScore</li>
+      <li>Data is used for App functionality</li>
+      <li>Users can delete data by clearing App storage / uninstalling</li>
+    </ul>
+    <p>
+      Always review and align your Play Console Data safety form with this policy before each release.
+    </p>
+
+    <h2>13. Changes to this policy</h2>
+    <p>
+      We may update this Privacy Policy from time to time.
+      The “Last updated” date at the top will change when we do.
+      Continued use of the App after an update means you accept the revised policy.
+    </p>
+
+    <h2>14. Contact</h2>
+    <p>
+      Questions about this Privacy Policy or ScoutNScore privacy practices:<br />
+      Email: <a href="mailto:REPLACE_WITH_YOUR_EMAIL@example.com">REPLACE_WITH_YOUR_EMAIL@example.com</a>
+    </p>
+
+    <p class="meta" style="margin-top:2.5rem">
+      This page is provided for the ScoutNScore Android app listing on Google Play.
+      It is not legal advice. Consider having a lawyer review it for your jurisdiction.
+    </p>
+  </main>
+</body>
+</html>
