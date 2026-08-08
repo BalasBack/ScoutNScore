@@ -93,7 +93,7 @@ export function Help() {
     },
     {
       title: "Opponent Scout",
-      body: "Search USCF, FIDE, online usernames, or ChessGames. Build a dossier and import their games separately from yours.",
+      body: "Search USCF, FIDE, Online Accounts (Lichess/Chess.com), or Chessgames.com. Build a dossier and import their games separately from yours.",
       to: "/scout",
       icon: Search,
     },
@@ -203,6 +203,16 @@ export function Help() {
                 </p>
               </>
             )}
+            <p>
+              <a
+                href="https://balasback.github.io/ScoutNScore/privacy.html"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-[var(--color-accent)] underline-offset-2 hover:underline"
+              >
+                Read the Privacy Policy
+              </a>
+            </p>
           </div>
         </Card>
 

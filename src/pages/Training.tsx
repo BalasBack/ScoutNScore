@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle, Dumbbell, Puzzle, RefreshCw, XCircle } from "lucide-react";
 import { api, BlunderPuzzle } from "../lib/tauri";
 import { Button, Card } from "../components/ui";
-import { ChessBoardView } from "../components/ChessBoard";
+import { ChessBoardView, SquareClickArgs } from "../components/ChessBoard";
 import {
   fenAfterUci,
   explainBestMove,
@@ -30,6 +30,7 @@ export function Training() {
   const [message, setMessage] = useState<string | null>(null);
   const [solvedCount, setSolvedCount] = useState(0);
   const [explanation, setExplanation] = useState<string | null>(null);
+  const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
 
   const startPuzzle = useCallback((p: BlunderPuzzle) => {
     setPuzzle(p);
@@ -37,6 +38,7 @@ export function Training() {
     setFeedback(null);
     setExplanation(null);
     setSolved(null);
+    setSelectedSquare(null);
     setAttemptStart(Date.now());
   }, []);
 
@@ -78,10 +80,55 @@ export function Training() {
       setFen("");
       setFeedback(null);
       setSolved(null);
+      setSelectedSquare(null);
       setMessage("Set complete! Loading a fresh batch…");
       load();
     }
   };
+
+  const attemptMove = useCallback(
+    (sourceSquare: string, targetSquare: string): boolean => {
+      if (!puzzle || solved !== null) return false;
+
+      const played = `${sourceSquare}${targetSquare}`;
+      const promotion =
+        puzzle.best_move_uci.length > 4 ? puzzle.best_move_uci[4] : "";
+      const playedFull = promotion ? `${played}${promotion}` : played;
+
+      const isCorrect =
+        playedFull === puzzle.best_move_uci ||
+        played === puzzle.best_move_uci.slice(0, 4);
+
+      const timeSecs = Math.round((Date.now() - attemptStart) / 1000);
+      api.submitPuzzleAttempt(puzzle.id, isCorrect, timeSecs).catch(console.error);
+
+      setSelectedSquare(null);
+
+      if (isCorrect) {
+        setSolved(true);
+        const bestSan = uciToSan(puzzle.fen, puzzle.best_move_uci);
+        setFeedback(`Correct! ${bestSan ?? puzzle.best_move_uci}`);
+        setExplanation(
+          explainBestMove(
+            puzzle.fen,
+            puzzle.best_move_uci,
+            puzzle.played_move,
+            puzzle.cp_loss,
+          ),
+        );
+        setFen(fenAfterUci(puzzle.fen, puzzle.best_move_uci));
+        setSolvedCount((c) => c + 1);
+      } else {
+        setSolved(false);
+        setExplanation(null);
+        setFeedback(
+          `Not quite — you played ${puzzle.played_move}. Try again or reveal the solution.`,
+        );
+      }
+      return isCorrect;
+    },
+    [attemptStart, puzzle, solved],
+  );
 
   const onPieceDrop = ({
     sourceSquare,
@@ -91,47 +138,49 @@ export function Training() {
     sourceSquare: string;
     targetSquare: string | null;
   }) => {
-    if (!puzzle || !targetSquare || solved !== null) return false;
-
-    const played = `${sourceSquare}${targetSquare}`;
-    const promotion = puzzle.best_move_uci.length > 4 ? puzzle.best_move_uci[4] : "";
-    const playedFull = promotion ? `${played}${promotion}` : played;
-
-    const isCorrect =
-      playedFull === puzzle.best_move_uci ||
-      played === puzzle.best_move_uci.slice(0, 4);
-
-    const timeSecs = Math.round((Date.now() - attemptStart) / 1000);
-    api.submitPuzzleAttempt(puzzle.id, isCorrect, timeSecs).catch(console.error);
-
-    if (isCorrect) {
-      setSolved(true);
-      const bestSan = uciToSan(puzzle.fen, puzzle.best_move_uci);
-      setFeedback(`Correct! ${bestSan ?? puzzle.best_move_uci}`);
-      setExplanation(
-        explainBestMove(
-          puzzle.fen,
-          puzzle.best_move_uci,
-          puzzle.played_move,
-          puzzle.cp_loss,
-        ),
-      );
-      setFen(fenAfterUci(puzzle.fen, puzzle.best_move_uci));
-      setSolvedCount((c) => c + 1);
-    } else {
-      setSolved(false);
-      setExplanation(null);
-      setFeedback(
-        `Not quite — you played ${puzzle.played_move}. Try again or reveal the solution.`,
-      );
-    }
-    return isCorrect;
+    if (!targetSquare) return false;
+    return attemptMove(sourceSquare, targetSquare);
   };
+
+  const turnColor = fen.split(" ")[1] === "b" ? "b" : "w";
+
+  const onSquareClick = ({ square, piece }: SquareClickArgs) => {
+    if (!puzzle || solved !== null) return;
+
+    const isOwnPiece =
+      !!piece && piece.pieceType.toLowerCase().startsWith(turnColor);
+
+    if (selectedSquare) {
+      if (selectedSquare === square) {
+        setSelectedSquare(null);
+        return;
+      }
+      // Tap another of your pieces: switch selection instead of attempting a move
+      if (isOwnPiece) {
+        setSelectedSquare(square);
+        return;
+      }
+      attemptMove(selectedSquare, square);
+      return;
+    }
+
+    if (isOwnPiece) setSelectedSquare(square);
+  };
+
+  const squareStyles = useMemo(() => {
+    if (!selectedSquare) return undefined;
+    return {
+      [selectedSquare]: {
+        backgroundColor: "rgba(250, 204, 21, 0.55)",
+      },
+    };
+  }, [selectedSquare]);
 
   const revealSolution = () => {
     if (!puzzle) return;
     const bestSan = uciToSan(puzzle.fen, puzzle.best_move_uci);
     setSolved(false);
+    setSelectedSquare(null);
     setFeedback(`Solution: ${bestSan ?? puzzle.best_move_uci}`);
     setExplanation(
       explainBestMove(
@@ -183,12 +232,17 @@ export function Training() {
         {puzzle && (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card title="Find the best move">
+              <p className="mb-3 text-xs text-[var(--color-muted)]">
+                Tap a piece, then tap a square — or drag and drop.
+              </p>
               <div className="mx-auto max-w-[420px]">
                 <ChessBoardView
                   fen={fen}
-                  allowDragging
+                  allowDragging={solved === null}
                   showAnimations
+                  squareStyles={squareStyles}
                   onPieceDrop={onPieceDrop}
+                  onSquareClick={onSquareClick}
                 />
               </div>
               {feedback && (
@@ -209,7 +263,7 @@ export function Training() {
                   <div className="min-w-0 space-y-1">
                     <div>{feedback}</div>
                     {explanation && (
-                      <p className="text-[var(--color-muted)] leading-relaxed">
+                      <p className="leading-relaxed text-[var(--color-muted)]">
                         {explanation}
                       </p>
                     )}
@@ -226,6 +280,7 @@ export function Training() {
                         setFeedback(null);
                         setExplanation(null);
                         setSolved(null);
+                        setSelectedSquare(null);
                         setAttemptStart(Date.now());
                       }}
                     >
@@ -263,7 +318,7 @@ export function Training() {
                   </span>
                 </p>
                 <p className="text-[var(--color-muted)]">
-                  Drag the right piece to the best square. Solved puzzles won't
+                  Tap a piece then a square (or drag). Solved puzzles won&apos;t
                   repeat until you start a new set.
                 </p>
                 <div className="flex items-center gap-2 pt-2">

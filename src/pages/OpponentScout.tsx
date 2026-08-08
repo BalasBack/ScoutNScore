@@ -19,8 +19,8 @@ type SearchSource = "uscf" | "fide" | "online" | "chessgames";
 const SEARCH_SOURCES: { id: SearchSource; label: string; hint: string }[] = [
   { id: "uscf", label: "USCF", hint: "US Chess Federation members" },
   { id: "fide", label: "FIDE", hint: "International rated players" },
-  { id: "online", label: "Online", hint: "Lichess and Chess.com usernames" },
-  { id: "chessgames", label: "ChessGames", hint: "ChessGames.com database" },
+  { id: "online", label: "Online Accounts", hint: "Lichess and Chess.com usernames" },
+  { id: "chessgames", label: "Chessgames.com", hint: "ChessGames.com database" },
 ];
 
 const SOURCE_IDS: Record<SearchSource, string[]> = {

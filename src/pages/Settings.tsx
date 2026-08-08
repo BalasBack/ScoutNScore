@@ -25,10 +25,16 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [repairing, setRepairing] = useState(false);
   const [repairMsg, setRepairMsg] = useState<string | null>(null);
+  const [gameCountDraft, setGameCountDraft] = useState("100");
+  const [depthDraft, setDepthDraft] = useState("18");
 
   useEffect(() => {
     refreshStatus();
-    api.getSettings().then(setSettings);
+    api.getSettings().then((s) => {
+      setSettings(s);
+      setGameCountDraft(String(s.default_game_count ?? 100));
+      setDepthDraft(String(s.analysis_depth ?? 18));
+    });
   }, []);
 
   const refreshStatus = () => {
@@ -200,10 +206,22 @@ export function SettingsPage() {
                 type="number"
                 min={10}
                 max={500}
-                value={settings.default_game_count ?? 100}
-                onChange={(e) =>
-                  update("default_game_count", parseInt(e.target.value) || 100)
-                }
+                inputMode="numeric"
+                value={gameCountDraft}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setGameCountDraft(raw);
+                  if (raw.trim() === "") return;
+                  const n = Number.parseInt(raw, 10);
+                  if (!Number.isNaN(n)) update("default_game_count", n);
+                }}
+                onBlur={() => {
+                  let n = Number.parseInt(gameCountDraft, 10);
+                  if (Number.isNaN(n)) n = 100;
+                  n = Math.min(500, Math.max(10, n));
+                  update("default_game_count", n);
+                  setGameCountDraft(String(n));
+                }}
               />
             </div>
             <div>
@@ -212,10 +230,22 @@ export function SettingsPage() {
                 type="number"
                 min={10}
                 max={30}
-                value={settings.analysis_depth ?? 18}
-                onChange={(e) =>
-                  update("analysis_depth", parseInt(e.target.value) || 18)
-                }
+                inputMode="numeric"
+                value={depthDraft}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setDepthDraft(raw);
+                  if (raw.trim() === "") return;
+                  const n = Number.parseInt(raw, 10);
+                  if (!Number.isNaN(n)) update("analysis_depth", n);
+                }}
+                onBlur={() => {
+                  let n = Number.parseInt(depthDraft, 10);
+                  if (Number.isNaN(n)) n = 18;
+                  n = Math.min(30, Math.max(10, n));
+                  update("analysis_depth", n);
+                  setDepthDraft(String(n));
+                }}
               />
             </div>
           </div>
@@ -327,6 +357,17 @@ export function SettingsPage() {
             </>
           )}
         </Button>
+
+        <p className="pb-2 text-center text-xs text-[var(--color-muted)]">
+          <a
+            href="https://balasback.github.io/ScoutNScore/privacy.html"
+            target="_blank"
+            rel="noreferrer"
+            className="text-[var(--color-accent)] underline-offset-2 hover:underline"
+          >
+            Privacy Policy
+          </a>
+        </p>
       </div>
     </div>
   );

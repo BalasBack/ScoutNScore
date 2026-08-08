@@ -44,7 +44,7 @@ function EvalBar({
 }) {
   const whitePct = evalBarWhitePercent(cp);
   return (
-    <div className="mb-3">
+    <div className="mb-2 sm:mb-3">
       <div className="mb-1.5 flex items-center justify-between text-xs">
         <span className="font-medium text-[var(--color-muted)]">Position</span>
         <span className="font-semibold">{formatEval(cp, fen)}</span>
@@ -277,17 +277,19 @@ export function Analysis() {
 
         {selected ? (
           <>
-            {/* Board panel */}
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-4 overflow-auto p-4 sm:p-6">
-              <div className="w-full max-w-lg">
-                <div className="mb-4 flex items-start justify-between gap-4">
-                  <div>
+            {/* Board panel — eval, board, move #, and remark stay visible together */}
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-3 pb-2 pt-3 sm:px-6 sm:pt-4 lg:overflow-auto lg:p-6">
+              <div className="flex min-h-0 w-full max-w-lg flex-1 flex-col self-center lg:flex-none">
+                <div className="mb-2 flex shrink-0 items-start justify-between gap-3 sm:mb-3 sm:gap-4">
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2 text-sm font-semibold">
-                      <Swords className="h-4 w-4 text-[var(--color-accent)]" />
-                      {selected.white_player} vs {selected.black_player}
+                      <Swords className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
+                      <span className="truncate">
+                        {selected.white_player} vs {selected.black_player}
+                      </span>
                     </div>
                     {opening && (
-                      <div className="mt-1 text-sm text-[var(--color-muted)]">
+                      <div className="mt-0.5 truncate text-xs text-[var(--color-muted)] sm:mt-1 sm:text-sm">
                         {opening.name}
                         {opening.eco && (
                           <span className="ml-2 font-mono text-xs text-[var(--color-accent)]">
@@ -297,18 +299,24 @@ export function Analysis() {
                       </div>
                     )}
                   </div>
-                  <span className={`text-sm font-medium ${resultColor(selected.result)}`}>
+                  <span className={`shrink-0 text-sm font-medium ${resultColor(selected.result)}`}>
                     {formatResult(selected.result)}
                   </span>
                 </div>
 
                 {analysis && positionEval != null && (
-                  <EvalBar cp={positionEval} fen={fen} />
+                  <div className="shrink-0">
+                    <EvalBar cp={positionEval} fen={fen} />
+                  </div>
                 )}
 
-                <ChessBoardView fen={fen} />
+                <div className="mx-auto flex min-h-0 w-full flex-1 items-center justify-center py-1 lg:flex-none lg:py-0">
+                  <div className="aspect-square h-auto max-h-full w-full max-w-[min(100%,calc(100dvh-18rem))] lg:max-w-none">
+                    <ChessBoardView fen={fen} />
+                  </div>
+                </div>
 
-                <div className="mt-4 flex items-center justify-center gap-1">
+                <div className="mt-2 flex shrink-0 items-center justify-center gap-1 sm:mt-3">
                   <Button variant="ghost" onClick={() => setMoveIndex(0)} title="Start">
                     <SkipBack className="h-4 w-4" />
                   </Button>
@@ -341,7 +349,7 @@ export function Analysis() {
                 </div>
 
                 {currentMoveAnalysis && moveIndex > 0 && (
-                  <div className="mt-3 rounded-lg bg-[var(--color-surface-2)] px-4 py-3 text-center text-sm">
+                  <div className="mt-2 shrink-0 rounded-lg bg-[var(--color-surface-2)] px-3 py-2 text-center text-sm sm:mt-3 sm:px-4 sm:py-3">
                     <span className="font-mono font-semibold">
                       {currentMoveAnalysis.san}
                     </span>
@@ -359,7 +367,7 @@ export function Analysis() {
             </main>
 
             {/* Move list */}
-            <aside className="max-h-52 shrink-0 overflow-auto border-t border-[var(--color-border)] bg-[var(--color-surface-2)]/30 p-3 lg:max-h-none lg:w-64 lg:border-l lg:border-t-0">
+            <aside className="max-h-[28vh] shrink-0 overflow-auto border-t border-[var(--color-border)] bg-[var(--color-surface-2)]/30 p-3 lg:max-h-none lg:w-64 lg:border-l lg:border-t-0">
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--color-muted)]">
                 Moves
               </div>
